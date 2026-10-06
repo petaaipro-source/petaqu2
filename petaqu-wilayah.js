@@ -64,12 +64,12 @@
     G = K.map(function (k, i) { return { i: i, k: k, name: label(k), prov: DIY[k.n] ? "diy" : "jt", jalan: [], jembatan: [], amp: [], bp: [], quarry: [] }; });
     getJbt().forEach(function (b) {
       var lat = +b.lat, lng = +b.lng, i = findK(lat, lng, b.kabupaten); if (i < 0) return;
-      G[i].jembatan.push({ t: "jembatan", lat: lat, lng: lng, name: b.nama || "Jembatan", sub: [b.ruas, b.panjang ? b.panjang + " m" : ""].filter(Boolean).join(" • ") });
+      G[i].jembatan.push({ t: "jembatan", lat: lat, lng: lng, name: b.nama || "Jembatan", sub: [b.ruas, b.panjang ? b.panjang + " m" : ""].filter(Boolean).join(" • "), rec: b });
     });
     (window.LOKASI_DATA || []).forEach(function (x) {
       var lat = +x.lat, lng = +x.lng; if (!TM[x.jenis] || !isFinite(lat) || !isFinite(lng) || (!x.lat && x.lat !== 0)) return;
       var i = findK(lat, lng, x.kabupaten); if (i < 0) return;
-      G[i][x.jenis].push({ t: x.jenis, lat: lat, lng: lng, name: x.owner || TM[x.jenis][1], sub: x.alamat || "" });
+      G[i][x.jenis].push({ t: x.jenis, lat: lat, lng: lng, name: x.owner || TM[x.jenis][1], sub: x.alamat || "", rec: x });
     });
     getRoads().forEach(function (r) {
       var pts = r.points || [], seen = {}, step = Math.max(1, Math.floor(pts.length / 30));
@@ -82,15 +82,21 @@
   /* ---------- gambar di peta ---------- */
   function clear() { var m = getMap(); if (layer && m) m.removeLayer(layer); layer = null; view = null; nearestData = null; }
   function newLayer() { var m = getMap(); clear(); layer = L.layerGroup().addTo(m); return layer; }
-  function popup(it, extra) { return '<div style="font-family:inherit;min-width:170px"><b>' + esc(it.name) + '</b><br><small>' + esc(TM[it.t][1]) + (extra ? " • " + extra : "") + (it.sub ? "<br>" + esc(it.sub) : "") + "</small></div>"; }
+  function popup(it, extra) {
+    function row(k, v) { return v == null || v === "" ? "" : '<div class="dr"><span>' + k + "</span><b>" + esc(v) + "</b></div>"; }
+    var det, p = it.pts || [];
+    if (it.t === "jalan") det = '<div class="dt">' + row("Info", it.sub) + row("STA awal", (p[0] || {}).sta) + row("STA akhir", (p[p.length - 1] || {}).sta) + row("Jarak", extra) + "</div>";
+    else det = '<div class="dt">' + row("Jarak", extra) + (window.PQ_DETAIL && it.rec ? window.PQ_DETAIL(it.t, it.rec).replace(/^<div class="dt">|<\/div>$/g, "") : row("Info", it.sub)) + row("Koordinat", it.lat.toFixed(6) + ", " + it.lng.toFixed(6)) + "</div>";
+    return '<div class="pq-cari-pop"><b>' + esc(it.name) + "</b><small>" + esc(TM[it.t][1]) + "</small>" + det + (it.t !== "jalan" ? '<div class="r"><a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' + it.lat + "," + it.lng + '">Rute</a></div>' : "") + "</div>";
+  }
   function drawItem(g, it, big, extra) {
     var c = TM[it.t][2];
     if (it.t === "jalan") {
       var pl = L.polyline(it.pts.map(function (p) { return [+p.lat, +p.lng]; }), { color: c, weight: big ? 5 : 3, opacity: .9 }).addTo(g);
-      pl.bindPopup(popup(it, extra)); pl.bindTooltip(esc(it.name), { sticky: true });
+      pl.bindPopup(popup(it, extra), { maxWidth: 320 }); pl.bindTooltip(esc(it.name), { sticky: true });
     } else {
       var mk = L.circleMarker([it.lat, it.lng], { radius: big ? 8 : 5, color: "#0b1220", weight: 1.5, fillColor: c, fillOpacity: .95 }).addTo(g);
-      mk.bindPopup(popup(it, extra)); mk.bindTooltip(esc(it.name), { direction: "top" });
+      mk.bindPopup(popup(it, extra), { maxWidth: 320 }); mk.bindTooltip(esc(it.name), { direction: "top" });
     }
   }
   function polyOf(g, strong) {
@@ -160,8 +166,8 @@
       for (var n = 0; n < pts.length; n++) { var d = dist(lat, lng, +pts[n].lat, +pts[n].lng); if (d < best) best = d; }
       if (isFinite(best) && pts.length) all.jalan.push({ t: "jalan", id: r.id, name: r.name, pts: pts, lat: +pts[0].lat, lng: +pts[0].lng, d: best, sub: pts.length + " titik STA" });
     });
-    getJbt().forEach(function (b) { var a = +b.lat, o = +b.lng; if (isFinite(a) && isFinite(o)) all.jembatan.push({ t: "jembatan", lat: a, lng: o, name: b.nama || "Jembatan", sub: [b.ruas, b.kabupaten].filter(Boolean).join(" • "), d: dist(lat, lng, a, o) }); });
-    (window.LOKASI_DATA || []).forEach(function (x) { var a = +x.lat, o = +x.lng; if (TM[x.jenis] && x.lat != null && isFinite(a) && isFinite(o)) all[x.jenis].push({ t: x.jenis, lat: a, lng: o, name: x.owner || TM[x.jenis][1], sub: x.kabupaten || "", d: dist(lat, lng, a, o) }); });
+    getJbt().forEach(function (b) { var a = +b.lat, o = +b.lng; if (isFinite(a) && isFinite(o)) all.jembatan.push({ t: "jembatan", lat: a, lng: o, name: b.nama || "Jembatan", sub: [b.ruas, b.kabupaten].filter(Boolean).join(" • "), d: dist(lat, lng, a, o), rec: b }); });
+    (window.LOKASI_DATA || []).forEach(function (x) { var a = +x.lat, o = +x.lng; if (TM[x.jenis] && x.lat != null && isFinite(a) && isFinite(o)) all[x.jenis].push({ t: x.jenis, lat: a, lng: o, name: x.owner || TM[x.jenis][1], sub: x.kabupaten || "", d: dist(lat, lng, a, o), rec: x }); });
     var g = newLayer(), picked = [], b = [[lat, lng]];
     view = { type: "near" }; nearestData = { lat: lat, lng: lng };
     L.circleMarker([lat, lng], { radius: 9, color: "#fff", weight: 3, fillColor: "#3b82f6", fillOpacity: 1 }).addTo(g).bindTooltip("Lokasi saya", { permanent: false });
