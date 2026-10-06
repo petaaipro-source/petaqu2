@@ -40,6 +40,31 @@
     } catch (e) { console.warn("PQ_DATA backup", e); }
   }
 
+  /* ---------- Meter kapasitas memori ---------- */
+  const LS_MAX = 5 * 1024 * 1024, lsLen = k => { const v = localStorage.getItem(k); return v ? k.length + v.length : 0; };
+  const mb = n => n >= 1048576 ? (n / 1048576).toFixed(2) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " B";
+  const bar = (parts, tot) => '<div class="pqd-bar">' + parts.filter(p => p[0] > 0).map(p => '<i style="width:' + Math.max(p[0] / tot * 100, .8).toFixed(2) + "%;background:" + p[1] + '" title="' + p[2] + " " + mb(p[0]) + '"></i>').join("") + "</div>";
+  const lg = parts => '<div class="pqd-lg">' + parts.map(p => '<span><em style="background:' + p[1] + '"></em>' + p[2] + " <b>" + mb(p[0]) + "</b></span>").join("") + "</div>";
+  async function clearBak() { try { const d = await idb(); await new Promise(ok => { const tx = d.transaction("bak", "readwrite"); tx.objectStore("bak").clear(); tx.oncomplete = ok; tx.onerror = ok; }); } catch (_) { } histDraw(); note("Cadangan dikosongkan"); }
+  async function memDraw() {
+    const el = $("pqdMem"); if (!el) return;
+    let tot = 0; for (let i = 0; i < localStorage.length; i++) tot += lsLen(localStorage.key(i));
+    const r = lsLen(R_KEY), b = lsLen(B_KEY), o = Math.max(0, tot - r - b), free = Math.max(0, LS_MAX - tot), pct = Math.min(100, tot / LS_MAX * 100), cls = pct > 85 ? "bad" : pct > 65 ? "mid" : "ok";
+    let est = null, per = false; try { est = await navigator.storage.estimate(); per = await navigator.storage.persisted(); } catch (_) { }
+    const d = est && est.usageDetails || {}, ix = d.indexedDB || 0, ca = d.caches || 0, use = est ? est.usage || 0 : 0, q = est ? est.quota || 0 : 0, ot = Math.max(0, use - ix - ca);
+    el.innerHTML = '<h4><span>Memori data PETAQU</span><span class="' + cls + '">' + pct.toFixed(1) + "% terpakai · sisa " + mb(free) + "</span></h4>" +
+      bar([[r, "#22d3ee", "Ruas jalan"], [b, "#a78bfa", "Jembatan"], [o, "#64748b", "Lainnya"], [free, "#1e293b", "Sisa"]], LS_MAX) +
+      lg([[r, "#22d3ee", "Ruas jalan"], [b, "#a78bfa", "Jembatan"], [o, "#64748b", "Pengaturan lain"], [free, "#334155", "Sisa bebas"]]) +
+      (est ? '<h4 style="margin-top:12px"><span>Penyimpanan perangkat</span><span>' + (use / q * 100).toFixed(2) + "% dari " + mb(q) + "</span></h4>" +
+        bar([[ix, "#f59e0b", "Cadangan"], [ca, "#34d399", "Cache offline"], [ot, "#64748b", "Lainnya"], [Math.max(0, q - use), "#1e293b", "Sisa"]], q) +
+        lg([[ix, "#f59e0b", "Cadangan"], [ca, "#34d399", "Cache offline"], [ot, "#64748b", "Lainnya"], [Math.max(0, q - use), "#334155", "Sisa bebas"]]) : "") +
+      "<small>" + (pct > 85 ? "⚠ Hampir penuh — unduh data .js lalu kosongkan cadangan agar upload berikutnya tidak gagal. " : pct > 65 ? "Mulai terisi; pantau sebelum upload besar. " : "Kapasitas aman. ") +
+      (per ? "Penyimpanan ditetapkan permanen (tidak dihapus otomatis browser)." : '<a href="#" id="pqdPer" style="color:#22d3ee">Minta penyimpanan permanen</a> agar browser tidak menghapus data saat memori HP menipis.') +
+      ' · <a href="#" id="pqdClr" style="color:#22d3ee">Kosongkan cadangan</a></small>';
+    const pe = $("pqdPer"); if (pe) pe.onclick = async e => { e.preventDefault(); try { note(await navigator.storage.persist() ? "Penyimpanan permanen aktif" : "Browser belum mengizinkan (coba setelah memasang aplikasi ke layar utama)", false); } catch (_) { } memDraw(); };
+    $("pqdClr").onclick = e => { e.preventDefault(); clearBak().then(memDraw); };
+  }
+
   /* ---------- Baca file + deteksi jenis ---------- */
   async function readFile(f) {
     if (!window.XLSX || !C()) throw new Error("Library Excel / konverter belum termuat, coba lagi sebentar");
@@ -82,7 +107,7 @@
   /* ---------- Terapkan ke aplikasi ---------- */
   function refresh() {
     try { typeof migrateKabupatenIfNeeded === "function" && migrateKabupatenIfNeeded(); } catch (_) { }
-    try { persist(); renderAll(); } catch (e) { console.warn(e); }
+    try { persist(); renderAll(); } catch (e) { console.warn(e); if (/quota/i.test(e.name + e.message)) note("Memori penuh: data aktif sementara saja. Unduh data .js dan kosongkan cadangan.", true); }
     try { persistJembatan(); renderJembatan(); renderJembatanList(); renderJembatanKabupatenFilterOptions(); } catch (e) { console.warn(e); }
     try { localStorage.setItem(GONE, JSON.stringify(seedIds().filter(id => !liveR().some(r => r.id === id)))); } catch (_) { }  // ruas bawaan yang sengaja dihapus tidak muncul lagi saat reload
   }
@@ -131,13 +156,15 @@
     ".pqd-it{border:1px solid #94b2cc2e;border-radius:12px;padding:10px 12px;background:#0f1726}.pqd-it h4{margin:0 0 6px;font-size:13px;display:flex;gap:8px;align-items:center;word-break:break-all}.pqd-tag{font-size:10.5px;padding:2px 8px;border-radius:99px;background:#0e7490;color:#fff;flex:none}.pqd-tag.j{background:#7c3aed}" +
     ".pqd-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.pqd-chips span{padding:3px 9px;border-radius:99px;background:#16233a;font-size:11.5px}.pqd-chips .n{color:#4ade80}.pqd-chips .u{color:#facc15}.pqd-chips .g{color:#f87171}" +
     ".pqd-is{margin:4px 0 0;padding:0;list-style:none;font-size:11.5px}.pqd-is li{padding:2px 0}.pqd-is .warn{color:#fbbf24}.pqd-is .info{color:#8fa6bd}.pqd details{border:1px solid #94b2cc22;border-radius:10px;padding:8px 12px}.pqd summary{cursor:pointer;font-weight:600}" +
-    ".pqd-hr{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid #94b2cc17;font-size:12px}.pqd-hr span{flex:1;color:#9db3c9}.pqd-g{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}";
+    ".pqd-hr{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid #94b2cc17;font-size:12px}.pqd-hr span{flex:1;color:#9db3c9}.pqd-g{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}" +
+    ".pqd-m h4{margin:0 0 8px;font-size:13px;display:flex;justify-content:space-between;gap:8px}.pqd-bar{display:flex;height:16px;border-radius:99px;overflow:hidden;background:#1e293b;margin:6px 0}.pqd-bar i{display:block;height:100%;min-width:3px}" +
+    ".pqd-lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:#9db3c9}.pqd-lg em{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}.pqd-lg b{color:#e6f1fb}.pqd-m .ok{color:#4ade80}.pqd-m .mid{color:#facc15}.pqd-m .bad{color:#f87171}.pqd-m small{display:block;color:#8fa6bd;margin-top:6px;font-size:11.5px}";
 
   function build() {
     const st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st);
     const box = document.createElement("div"); box.id = "pqdBox"; box.className = "pqd";
     box.innerHTML = '<div class="pqd-card"><div class="pqd-h"><b><i class="fa-solid fa-cloud-arrow-up"></i> Upload &amp; Perbarui Data</b><button id="pqdX" aria-label="Tutup">×</button></div><div class="pqd-b">' +
-      '<div id="pqdDrop" class="pqd-drop"><b>Seret file Excel / CSV ke sini</b> atau <u>pilih file</u><small>Ruas jalan (kolom Ruas, STA, Latitude, Longitude) dan/atau jembatan (Nama, Latitude, Longitude). Jenis data dikenali otomatis; boleh banyak file sekaligus.</small><input id="pqdFile" type="file" multiple accept=".xlsx,.xls,.csv" hidden></div>' +
+      '<div id="pqdMem" class="pqd-it pqd-m"></div><div id="pqdDrop" class="pqd-drop"><b>Seret file Excel / CSV ke sini</b> atau <u>pilih file</u><small>Ruas jalan (kolom Ruas, STA, Latitude, Longitude) dan/atau jembatan (Nama, Latitude, Longitude). Jenis data dikenali otomatis; boleh banyak file sekaligus.</small><input id="pqdFile" type="file" multiple accept=".xlsx,.xls,.csv" hidden></div>' +
       '<div class="pqd-row">Mode: <label><input type="radio" name="pqdM" value="merge" checked> Gabung (tambah &amp; perbarui)</label><label><input type="radio" name="pqdM" value="replace"> Ganti semua</label>' +
       '<label><input type="checkbox" id="pqdClip" checked> Lewati jembatan di luar Jateng–DIY</label><label>Jenis: <select id="pqdKind"><option value="auto">Otomatis</option><option value="ruas">Ruas jalan</option><option value="jembatan">Jembatan</option></select></label></div>' +
       '<div id="pqdRes"></div><div class="pqd-row"><button id="pqdGo" class="pqd-btn pri" disabled>Terapkan ke peta</button><button class="pqd-btn" data-t="ruas">Template ruas</button><button class="pqd-btn" data-t="jembatan">Template jembatan</button></div>' +
@@ -173,11 +200,12 @@
     $("pqdGo").disabled = !S.items.some(i => i.res && i.res.data.length);
   }
   async function histDraw() {
+    memDraw();
     const l = await bakAll(), el = $("pqdHist"); if (!el) return;
     el.innerHTML = l.length ? l.map(x => '<div class="pqd-hr"><span>' + new Date(x.t).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) + " · " + esc(x.label) + " (" + fmt(x.roads.length) + " ruas, " + fmt(x.jbt.length) + ' jembatan)</span><button class="pqd-btn" data-r="' + x.t + '">Pulihkan</button></div>').join("")
       : '<div style="color:#8fa6bd;font-size:12px;padding-top:6px">Belum ada cadangan. Dibuat otomatis setiap kali Anda menerapkan upload.</div>';
   }
-  function open() { if (!$("pqdBox")) build(); $("pqdBox").classList.add("show"); draw(); }
+  function open() { if (!$("pqdBox")) build(); $("pqdBox").classList.add("show"); draw(); memDraw(); }
   function init() {
     const b = document.createElement("button"); b.type = "button"; b.title = "Upload data ruas jalan & jembatan (Excel/CSV) — langsung tampil di peta"; b.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i>'; b.onclick = open;
     if (window.PQ_DOCK) PQ_DOCK.adopt(b, "Upload Data");
