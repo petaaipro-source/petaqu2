@@ -9,8 +9,8 @@
    ========================================================================== */
 (function () {
   "use strict";
-  var BB = { w: 108.45, s: -8.40, e: 111.80, n: -5.65 };
-  var STATE_OK = /jawa tengah|central java|yogyakarta/i;
+  var BB = { w: 94.9, s: -11.2, e: 141.1, n: 6.2 }; /* seluruh Indonesia */
+  var STATE_OK = /./; /* semua provinsi */
   var HIST_KEY = "petaqu_cari_riwayat_v1";
   var cache = {}, ctrl = null, timer = null, lastNom = 0, seq = 0;
   var items = [], lastAll = [], lastQ = "", filter = "all", active = -1, pin = null, rec = null;
@@ -53,10 +53,18 @@
 #pqCari.focus .kbd,#pqCari.has .kbd{display:none}\
 #pqCari .ib{width:36px;height:36px;flex:none;border:0;border-radius:50%;background:none;color:#8a99ae;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.15s}\
 #pqCari .ib:hover{color:#22d3ee;background:rgba(34,211,238,.1)}\
+#pqCari .cam{color:#ef4444}#pqCari .cam:hover{color:#fff;background:#ef4444}#pqCari .cam.on{color:#fff;background:#ef4444;animation:pqpulse 1s infinite}\
 #pqCari .mic.rec{color:#fff;background:#ef4444;animation:pqpulse 1s infinite}\
 #pqCari .go{background:linear-gradient(135deg,#0e7490,#3b82f6);color:#fff}\
 #pqCari .go:hover{color:#fff;filter:brightness(1.2)}\
 #pqCari .clr{display:none}#pqCari.has .clr{display:flex}\
+/* fokus: folder, rekam & mic menyingkir agar kotak cari lega; hanya panah tetap di sampingnya */\
+#pqCari .bar{transition:padding .22s ease,box-shadow .25s}\
+#pqCari .cam,#pqCari .mic{transition:width .2s ease,opacity .15s ease,margin .2s ease,background .15s,color .15s}\
+#pqCari.focus .bar{padding-left:18px}\
+#pqCari.focus .cam,#pqCari.focus .mic{width:0;opacity:0;margin:0 -2px;overflow:hidden;pointer-events:none}\
+body:has(#pqCari.focus) #pqFolder{opacity:0!important;transform:scale(.6)!important;pointer-events:none!important;transition:opacity .18s ease,transform .18s ease}\
+body:has(#pqCari.focus) #pqFolderCard{display:none!important}\
 #pqCari .dd{display:none;margin-top:8px;background:rgba(10,14,23,.97);backdrop-filter:blur(14px);border:1px solid #1e2938;border-radius:18px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.6)}\
 #pqCari.open .dd{display:block;animation:pqin .18s ease}\
 @keyframes pqin{from{opacity:0;transform:translateY(-6px)}}\
@@ -111,8 +119,9 @@ body:has(.modal-overlay.show,#svOverlay.show,#arOverlay.show,#cmOverlay.show,#lo
     var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     root.innerHTML =
       '<div class="bar"><input type="search" placeholder="Cari jalan, desa, kantor, jembatan, koordinat…" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Cari">' +
-      '<span class="kbd">/</span><span class="tag">JATENG · DIY</span>' +
+      '<span class="kbd">/</span>' +
       '<button class="ib clr" type="button" title="Hapus"><i class="fa-solid fa-xmark"></i></button>' +
+      '<button class="ib cam pqa-tb" type="button" title="Rekam &amp; Screenshot layar (Alt+Shift+R)" aria-label="Rekam dan screenshot"><i class="fa-solid fa-circle-dot"></i></button>' +
       (SR ? '<button class="ib mic" type="button" title="Cari dengan suara"><i class="fa-solid fa-microphone"></i></button>' : "") +
       '<button class="ib go" type="button" title="Cari"><i class="fa-solid fa-arrow-right"></i></button></div><div class="dd"></div>';
     document.body.appendChild(root);
@@ -133,8 +142,13 @@ body:has(.modal-overlay.show,#svOverlay.show,#arOverlay.show,#cmOverlay.show,#lo
       else if (e.key === "Enter") { e.preventDefault(); clearTimeout(timer); if (active >= 0 && items[active]) pick(items[active]); else run(inp.value.trim(), true); }
     });
     root.querySelector(".clr").onclick = function () { inp.value = ""; root.classList.remove("has"); clearPin(); showHome(); inp.focus(); };
+    ["pointerdown", "mousedown"].forEach(function (ev) {
+      root.querySelectorAll(".go,.clr").forEach(function (b) { b.addEventListener(ev, function (e) { if (document.activeElement === inp) e.preventDefault(); }); });
+    });
     root.querySelector(".go").onclick = function () { clearTimeout(timer); run(inp.value.trim(), true); };
     var mic = root.querySelector(".mic"); if (mic) mic.onclick = function () { voice(SR, mic); };
+    var cam = root.querySelector(".cam");
+    if (cam) cam.onclick = function (e) { e.stopPropagation(); if (window.PETAQU_AKSI) PETAQU_AKSI.menu(cam); else if (typeof toast === "function") toast("Fitur rekam belum siap — muat ulang halaman", true); };
     document.addEventListener("click", function (e) { if (!root.contains(e.target)) close(); });
     document.addEventListener("keydown", function (e) {
       var t = e.target && e.target.tagName;
@@ -155,7 +169,7 @@ body:has(.modal-overlay.show,#svOverlay.show,#arOverlay.show,#cmOverlay.show,#lo
 
   function showHome() {
     var h = hist(); items = h; active = -1; lastAll = [];
-    var html = '<div class="qa"><button class="chip" data-qa="loc"><i class="fa-solid fa-crosshairs"></i> Lokasi saya</button><button class="chip" data-qa="jateng"><i class="fa-solid fa-map"></i> Seluruh Jateng</button><button class="chip" data-qa="diy"><i class="fa-solid fa-landmark"></i> Yogyakarta</button></div><div class="ls">';
+    var html = '<div class="qa"><button class="chip" data-qa="loc"><i class="fa-solid fa-crosshairs"></i> Lokasi saya</button><button class="chip" data-qa="paket"><i class="fa-solid fa-file-contract"></i> Paket Upload</button><button class="chip" data-qa="jateng"><i class="fa-solid fa-map"></i> Semua Wilayah</button><button class="chip" data-qa="diy"><i class="fa-solid fa-landmark"></i> Yogyakarta</button></div><div class="ls">';
     if (h.length) html += rows(h, "");
     else html += '<div class="st"><i class="fa-solid fa-circle-info"></i> Ketik nama jalan, desa, jembatan, atau tempel koordinat.</div>';
     dd.innerHTML = html + "</div>" + footer(""); open();
@@ -247,7 +261,7 @@ body:has(.modal-overlay.show,#svOverlay.show,#arOverlay.show,#cmOverlay.show,#lo
     var chain = full ? nominatim(q, sig).then(function (r) { return r.length ? r : photon(q, sig); }, function () { return photon(q, sig); }) : photon(q, sig).catch(function () { return nominatim(q, sig); });
     chain.then(function (r) {
       if (my !== seq) return; cache[key] = r; lastAll = dedupe(base.concat(r));
-      if (!lastAll.length) { status('<i class="fa-solid fa-magnifying-glass-location"></i> Tidak ada hasil di Jawa Tengah &amp; DIY untuk “' + esc(q) + '”.' + (full ? "" : " Tekan Enter untuk pencarian lebih luas.")); dd.insertAdjacentHTML("beforeend", footer(q)); return; }
+      if (!lastAll.length) { status('<i class="fa-solid fa-magnifying-glass-location"></i> Tidak ada hasil di Indonesia untuk “' + esc(q) + '”.' + (full ? "" : " Tekan Enter untuk pencarian lebih luas.")); dd.insertAdjacentHTML("beforeend", footer(q)); return; }
       draw(); if (full && lastAll.length === 1) pick(lastAll[0]);
     }).catch(function (e) {
       if (my !== seq || (e && e.name === "AbortError" && !full) || base.length) return;
@@ -265,13 +279,19 @@ body:has(.modal-overlay.show,#svOverlay.show,#arOverlay.show,#cmOverlay.show,#lo
   }
   function quick(a) {
     var m = getMap(); if (!m) return; close();
-    if (a === "jateng") { if (window.PQ_WILAYAH) PQ_WILAYAH.show("jateng"); else m.flyTo([-7.15, 110.15], 8, { duration: 1 }); }
+    if (a === "jateng") { if (window.PQ_WILAYAH) PQ_WILAYAH.show("all"); else m.flyTo([-7.15, 110.15], 8, { duration: 1 }); }
     else if (a === "diy") { if (window.PQ_WILAYAH) PQ_WILAYAH.show("diy"); else m.flyTo([-7.88, 110.4], 10, { duration: 1 }); }
+    else if (a === "paket") {
+      var P = window.PETAQU_PAKET;
+      if (!P) return status('<i class="fa-solid fa-triangle-exclamation"></i> Modul Paket belum siap, coba sesaat lagi.');
+      var all = P.all ? P.all() : [];
+      if (all.length) { P.petakan(all); } else { P.open(); }
+    }
     else if (a === "loc") {
       if (!navigator.geolocation) return status("Perangkat tidak mendukung GPS.");
       navigator.geolocation.getCurrentPosition(function (p) {
         var la = p.coords.latitude, ln = p.coords.longitude;
-        if (!inBox(la, ln)) { status('<i class="fa-solid fa-location-pin-lock"></i> Lokasi Anda di luar Jawa Tengah &amp; DIY.'); return; }
+        if (!inBox(la, ln)) { status('<i class="fa-solid fa-location-pin-lock"></i> Lokasi Anda di luar Indonesia.'); return; }
         if (window.PQ_WILAYAH) PQ_WILAYAH.nearest(la, ln); else pick({ kind: "coord", main: "Lokasi saya", sub: "Posisi GPS perangkat", lat: la, lng: ln }, true);
       }, function () { status('<i class="fa-solid fa-triangle-exclamation"></i> Izin lokasi ditolak.'); open(); }, { enableHighAccuracy: true, timeout: 10000 });
     }

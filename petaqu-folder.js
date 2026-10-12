@@ -36,6 +36,7 @@
     ".pqf-h{font:700 10px/1 system-ui,sans-serif;letter-spacing:.8px;text-transform:uppercase;color:#8fa6bd;padding:11px 10px 5px}",
     ".pqf-row{display:flex;align-items:center;gap:11px;width:100%;padding:7px 10px;border:0;border-radius:10px;background:transparent;color:inherit;font:600 12.5px/1.25 system-ui,sans-serif;cursor:pointer;text-align:left}",
     ".pqf-row:hover,.pqf-row:focus-visible{background:#22d3ee17;outline:0}",
+    ".pqf-row.pqf-danger{margin-bottom:2px;border:1px solid #f8717144;background:#f871710d}.pqf-row.pqf-danger:hover,.pqf-row.pqf-danger:focus-visible{background:#f8717126}",
     ".pqf-ic{width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--c,#22d3ee);color:var(--c,#22d3ee);background:#0f1726;font-size:13px}",
     ".pqf-ic .pq-fi,.pqf-ic i{font-size:13px}",
     ".pqf-t{flex:1;min-width:0}",
@@ -111,11 +112,15 @@
     var txt = cnt ? String(cnt) : "";
     if (badge.textContent !== txt) badge.textContent = txt;
 
-    var s = JSON.stringify([L, T, D.map(function (d) { return d.t; })]);
+    var W = [];
+    try { if (window.PETAQU_CUACA && PETAQU_CUACA.rows) W = PETAQU_CUACA.rows(); } catch (e) { W = []; }
+    var Z = []; try { if (window.PETAQU_RAWAN && PETAQU_RAWAN.rows) Z = PETAQU_RAWAN.rows(); } catch (e) { Z = []; }
+    var s = JSON.stringify([L, T, (window.PETAQU_BLOK ? PETAQU_BLOK.count() : -1), W, Z, D.map(function (d) { return d.t; })]);
     if (s === sig && !force) return;
     sig = s;
 
-    var h = "";
+    var h = '<button type="button" class="pqf-row pqf-danger" data-k="R" style="--c:#f87171" title="Kembalikan semua data ruas ke data asli impor Excel awal">' +
+      '<span class="pqf-ic"><i class="pq-fi">\uf2ea</i></span><span class="pqf-t">Reset ke Data Asli</span></button>';
     if (L.length) {
       h += '<div class="pqf-h">Lapisan jalan</div>';
       L.forEach(function (x) {
@@ -128,8 +133,34 @@
     if (T) {
       h += '<div class="pqf-h">Tampilan</div>' +
         '<button type="button" class="pqf-row" data-k="T" style="--c:#22d3ee">' +
-        '<span class="pqf-ic">\u25D0</span><span class="pqf-t">Transparansi luar Jawa Tengah</span>' +
+        '<span class="pqf-ic">\u25D0</span><span class="pqf-t">Transparansi wilayah (pilih)</span>' +
         '<span class="pqf-st' + (T.on ? "" : " off") + '">' + (T.on ? "ON" : "OFF") + "</span></button>";
+
+    }
+    if (window.PETAQU_BLOK) {
+      var BK = PETAQU_BLOK.count();
+      if (!T) h += '<div class="pqf-h">Tampilan</div>';
+      h += '<button type="button" class="pqf-row" data-k="B" style="--c:#f59e0b">' +
+        '<span class="pqf-ic">\u25A8</span><span class="pqf-t">Blok warna wilayah</span>' +
+        '<span class="pqf-st' + (BK ? "" : " off") + '">' + (BK ? BK + " ON" : "OFF") + "</span></button>";
+    }
+    if (W.length) {
+      h += '<div class="pqf-h">Cuaca Indonesia</div>';
+      W.forEach(function (x) {
+        h += '<button type="button" class="pqf-row" data-k="W:' + x.id + '" style="--c:' + x.c + '">' +
+          '<span class="pqf-ic"><i class="pq-fi">' + x.ic + "</i></span>" +
+          '<span class="pqf-t">' + esc(x.name) + "</span>" +
+          (x.on == null ? "" : '<span class="pqf-st' + (x.on ? "" : " off") + '">' + (x.on ? "ON" : "OFF") + "</span>") + "</button>";
+      });
+    }
+    if (Z.length) {
+      h += '<div class="pqf-h">Rawan Bencana &amp; Lalu Lintas</div>';
+      Z.forEach(function (x) {
+        h += '<button type="button" class="pqf-row" data-k="Z:' + x.id + '" style="--c:' + x.c + '">' +
+          '<span class="pqf-ic"><i class="pq-fi">' + x.ic + "</i></span>" +
+          '<span class="pqf-t">' + esc(x.name) + "</span>" +
+          (x.on == null ? "" : '<span class="pqf-st' + (x.on ? "" : " off") + '">' + (x.on ? "ON" : "OFF") + "</span>") + "</button>";
+      });
     }
     if (D.length) {
       h += '<div class="pqf-h">Alat PETAQU</div>';
@@ -146,12 +177,27 @@
     if (!r) return;
     var k = r.getAttribute("data-k") || "";
     set(false);
-    if (k.charAt(0) === "L") {
+    if (k === "R") {
+      closePanels();
+      closeJt();
+      try { if (typeof resetToOriginal === "function") resetToOriginal(); } catch (e) { }
+    } else if (k.charAt(0) === "L") {
       var id = k.slice(2), meta = LAY.filter(function (l) { return l[0] === id; })[0];
       closePanels(meta && meta[4]);
       closeJt();
       var b = $(id);
       if (b) b.click();
+    } else if (k.charAt(0) === "W") {
+      closePanels();
+      closeJt();
+      try { PETAQU_CUACA.act(k.slice(2)); } catch (e) { }
+    } else if (k.charAt(0) === "Z") {
+      closePanels();
+      closeJt();
+      try { PETAQU_RAWAN.act(k.slice(2)); } catch (e) { }
+    } else if (k === "B") {
+      closePanels();
+      try { PETAQU_BLOK.open(); } catch (e) { }
     } else if (k === "T") {
       closePanels();
       var j = jtParts();
